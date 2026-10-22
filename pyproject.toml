@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentfixer"
+version = "0.1.0"
+description = "Autonomous AI Agent Runtime Shield & Token Sieve: Context defense, false-pass interception, and fuzzy surgical patching for Claude Code, Antigravity, and SWE-bench."
+readme = "README.md"
+authors = [
+    { name = "Krish Joshi", email = "krishjoshi507@gmail.com" }
+]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+keywords = [
+    "ai-agents",
+    "token-sieve",
+    "context-optimization",
+    "swe-bench",
+    "claude-code",
+    "antigravity",
+    "false-pass-detection",
+    "surgical-patcher"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/KR-007J/agentfixer"
+Repository = "https://github.com/KR-007J/agentfixer"
+Issues = "https://github.com/KR-007J/agentfixer/issues"
+
+[project.scripts]
+agentfix = "agentfixer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
