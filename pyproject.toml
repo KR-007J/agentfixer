@@ -41,6 +41,7 @@ Issues = "https://github.com/KR-007J/agentfixer/issues"
 
 [project.scripts]
 agentfix = "agentfixer.cli:main"
+agentfixer = "agentfixer.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

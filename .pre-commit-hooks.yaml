@@ -1,0 +1,30 @@
+- id: agentfix-audit
+  name: AgentFixer Workspace Audit & Cache Purge
+  description: Scans repository for temporary agent clutter, cache artifacts, and purges them.
+  entry: agentfix audit
+  language: python
+  pass_filenames: false
+  always_run: true
+
+- id: agentfix-scopelock
+  name: AgentFixer ScopeLock Boundary Sentinel
+  description: Verifies no forbidden or out-of-scope files were modified during agent execution.
+  entry: agentfix run --strict-scope -- pytest
+  language: python
+  pass_filenames: false
+  always_run: true
+
+- id: agentfix-pytest
+  name: AgentFixer Pytest Sieve & False-Pass Guard
+  description: Runs pytest wrapped by AgentFixer TokenSieve and Sentinel.
+  entry: agentfix run -- pytest
+  language: python
+  pass_filenames: false
+  types: [python]
+
+- id: agentfix-run
+  name: AgentFixer Universal Command Shield
+  description: Wraps custom test runner or command with TokenSieve and FalsePass Sentinel.
+  entry: agentfix run --
+  language: python
+  pass_filenames: false

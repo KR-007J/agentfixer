@@ -19,6 +19,13 @@ class SentinelResult:
     effective_exit_code: int
     reason: str = ""
     remediation_hint: str = ""
+    hint: str = ""
+
+    def __post_init__(self):
+        if not self.hint and self.remediation_hint:
+            self.hint = self.remediation_hint
+        elif not self.remediation_hint and self.hint:
+            self.remediation_hint = self.hint
 
 
 class FalsePassSentinel:
@@ -55,6 +62,42 @@ class FalsePassSentinel:
             "Go found no test files or tests to run.",
             "Check package directory and verify file names end in _test.go."
         ),
+        # Maven zero tests
+        (
+            re.compile(
+                r"Tests run:\s*0,\s*Failures:\s*0,\s*Errors:\s*0|There are no tests to run|No tests to run\.|No tests were executed",
+                re.IGNORECASE
+            ),
+            "Maven ran 0 tests.",
+            "Ensure test classes match Surefire patterns (*Test.java, Test*.java, *TestCase.java) or check -Dtest parameter."
+        ),
+        # Gradle zero tests
+        (
+            re.compile(
+                r"Task\s+:\S*test\S*\s+NO-SOURCE|\b0 tests completed\b|No tests found for given includes",
+                re.IGNORECASE
+            ),
+            "Gradle ran 0 tests (:test NO-SOURCE or 0 tests completed).",
+            "Check test source directory (src/test/java or src/test/kotlin) and test class naming."
+        ),
+        # CTest / GoogleTest zero tests
+        (
+            re.compile(
+                r"\b0% tests passed,\s*0 tests failed out of\s*0\b|No tests were found!!!|\b0 tests from 0 test suites ran|\[\s*PASSED\s*\]\s*0 tests\b",
+                re.IGNORECASE
+            ),
+            "CTest/GoogleTest ran 0 tests.",
+            "Verify CMakeLists.txt enable_testing(), add_test(), or gtest_discover_tests() configuration."
+        ),
+        # Cargo nextest zero tests
+        (
+            re.compile(
+                r"\b0 tests run:\s*0 passed|Starting\s+0\s+tests across",
+                re.IGNORECASE
+            ),
+            "Cargo nextest ran 0 tests.",
+            "Verify test functions have #[test] attribute or check nextest filter arguments (-E / filter)."
+        ),
     ]
 
     @classmethod
@@ -82,7 +125,10 @@ class FalsePassSentinel:
 
         cmd_lower = command.lower()
         is_test_command = any(
-            t in cmd_lower for t in ("test", "pytest", "jest", "vitest", "cargo", "unittest", "eval")
+            t in cmd_lower for t in (
+                "test", "pytest", "jest", "vitest", "cargo", "unittest", "eval",
+                "mvn", "mvnw", "maven", "gradle", "gradlew", "ctest", "gtest", "nextest"
+            )
         )
 
         # Check for empty output on explicit test commands

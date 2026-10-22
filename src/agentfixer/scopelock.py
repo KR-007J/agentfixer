@@ -47,7 +47,25 @@ SCRATCH_PATTERNS = [
     "yarn-error.log*",
     "*.tmp",
     "*.scratch",
+    "*.log",
+    "*_dump.log",
+    "*temp_scratch*",
 ]
+
+
+class _PurgeScratchDescriptor:
+    """Descriptor enabling ScopeLock.purge_scratch(...) on both class and instances."""
+    def __get__(self, instance, owner=None):
+        if instance is None:
+            def _class_purge(*args, workspace: Optional[str | Path] = None, **kwargs) -> List[str]:
+                target = workspace or (args[0] if args else None) or "."
+                return ScopeLock._do_purge_scratch(target)
+            return _class_purge
+        else:
+            def _instance_purge(*args, workspace: Optional[str | Path] = None, **kwargs) -> List[str]:
+                target = workspace or (args[0] if args else None) or instance.root
+                return ScopeLock._do_purge_scratch(target)
+            return _instance_purge
 
 
 class ScopeLock:
@@ -58,9 +76,10 @@ class ScopeLock:
         root_dir: str | Path = ".",
         allowed_patterns: Optional[List[str]] = None,
         forbidden_patterns: Optional[List[str]] = None,
+        target_files: Optional[List[str]] = None,
     ):
         self.root = Path(root_dir).resolve()
-        self.allowed_patterns = allowed_patterns or ["*"]
+        self.allowed_patterns = target_files or allowed_patterns or ["*"]
         self.forbidden_patterns = forbidden_patterns or [
             ".git/*",
             ".env*",
@@ -142,10 +161,14 @@ class ScopeLock:
             purged_artifacts=purged,
         )
 
-    def purge_scratch(self) -> List[str]:
+    purge_scratch = _PurgeScratchDescriptor()
+
+    @staticmethod
+    def _do_purge_scratch(target_dir: str | Path) -> List[str]:
         """Purge known temporary cache files and directories."""
+        target_root = Path(target_dir).resolve()
         purged = []
-        for root, dirs, files in os.walk(self.root, topdown=False):
+        for root, dirs, files in os.walk(target_root, topdown=False):
             if ".git" in dirs:
                 dirs.remove(".git")
             for d in list(dirs):
@@ -153,7 +176,7 @@ class ScopeLock:
                     dir_path = Path(root) / d
                     try:
                         shutil.rmtree(dir_path)
-                        purged.append(str(dir_path.relative_to(self.root)))
+                        purged.append(str(dir_path.relative_to(target_root)))
                         dirs.remove(d)
                     except Exception:
                         pass
@@ -162,10 +185,25 @@ class ScopeLock:
                     file_path = Path(root) / f
                     try:
                         file_path.unlink()
-                        purged.append(str(file_path.relative_to(self.root)))
+                        purged.append(str(file_path.relative_to(target_root)))
                     except Exception:
                         pass
         return purged
+
+    def detect_violations(self, workspace: Optional[str | Path] = None) -> List[ScopeViolation]:
+        """Directly scan workspace directory for files matching forbidden or unallowed patterns."""
+        target_root = Path(workspace or self.root).resolve()
+        violations = []
+        for root, dirs, files in os.walk(target_root):
+            if ".git" in dirs:
+                dirs.remove(".git")
+            for f in files:
+                full_path = Path(root) / f
+                rel_path = str(full_path.relative_to(target_root))
+                v = self._check_path_allowed(rel_path, "modified")
+                if v:
+                    violations.append(v)
+        return violations
 
     def _check_path_allowed(self, rel_path: str, change: str) -> Optional[ScopeViolation]:
         # Check forbidden first

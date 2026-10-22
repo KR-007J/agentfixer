@@ -10,6 +10,7 @@ Provides fast, scriptable CLI commands:
 from __future__ import annotations
 
 import argparse
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -22,16 +23,24 @@ from agentfixer.scopelock import ScopeLock
 
 def cmd_run(args: argparse.Namespace) -> int:
     """Execute a wrapped command with TokenSieve, Sentinel, and ScopeLock."""
-    if not args.cmd:
+    cmd = getattr(args, "cmd", [])
+    if not cmd:
         print("[AgentFixer Error] No command specified. Use: agentfix run -- <command>")
         return 1
 
-    command_str = " ".join(args.cmd)
+    if isinstance(cmd, list):
+        if cmd and cmd[0] == "--":
+            cmd = cmd[1:]
+        command_str = shlex.join(cmd)
+    else:
+        command_str = str(cmd)
     scopelock = None
-    if not args.no_scopelock:
+    no_scopelock = getattr(args, "no_scopelock", False)
+    allow = getattr(args, "allow", None)
+    if not no_scopelock:
         scopelock = ScopeLock(
             root_dir=".",
-            allowed_patterns=args.allow or ["*"],
+            allowed_patterns=allow or ["*"],
         )
         scopelock.capture_snapshot()
 
@@ -52,7 +61,8 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     # 1. FalsePass Sentinel Inspection
     effective_exit = raw_exit
-    if not args.no_sentinel:
+    no_sentinel = getattr(args, "no_sentinel", False)
+    if not no_sentinel:
         sentinel_res = FalsePassSentinel.inspect(
             stdout=stdout,
             stderr=stderr,
@@ -64,16 +74,19 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(FalsePassSentinel.format_alert(sentinel_res), file=sys.stderr)
 
     # 2. TokenSieve Output Compression
-    if not args.no_sieve:
+    no_sieve = getattr(args, "no_sieve", False)
+    verbose = getattr(args, "verbose", False)
+    quiet = getattr(args, "quiet", False)
+    if not no_sieve:
         sieve_res = TokenSieve.sieve(
             stdout=stdout,
             stderr=stderr,
             exit_code=effective_exit,
             command=command_str,
-            verbose=args.verbose,
+            verbose=verbose,
         )
         print(sieve_res["sieved_text"])
-        if sieve_res["is_compressed"] and not args.quiet:
+        if sieve_res["is_compressed"] and not quiet:
             print(
                 f"\n[AgentFixer Sieve] Saved ~{sieve_res['tokens_saved']} tokens "
                 f"({sieve_res['reduction_pct']}% reduction | "
@@ -86,13 +99,15 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(stderr, end="", file=sys.stderr)
 
     # 3. ScopeLock Worktree Verification
-    if scopelock and not args.no_scopelock:
-        scope_rep = scopelock.verify(auto_purge=not args.no_purge)
+    strict_scope = getattr(args, "strict_scope", False)
+    no_purge = getattr(args, "no_purge", False)
+    if scopelock and not no_scopelock:
+        scope_rep = scopelock.verify(auto_purge=not no_purge)
         if not scope_rep.clean:
             print("\n[AgentFixer ScopeLock WARNING] Out-of-scope modifications detected:")
             for v in scope_rep.violations:
                 print(f"  - [{v.change_type.upper()}] {v.path}: {v.reason}")
-            if args.strict_scope:
+            if strict_scope:
                 effective_exit = 102
 
     return effective_exit
@@ -204,8 +219,18 @@ def cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
+class AgentFixParser(argparse.ArgumentParser):
+    """Custom parser that normalizes arguments and strips double-dash prefix from cmd."""
+    def parse_args(self, args=None, namespace=None):
+        res = super().parse_args(args=args, namespace=namespace)
+        if hasattr(res, "cmd") and isinstance(res.cmd, list) and res.cmd and res.cmd[0] == "--":
+            res.cmd = res.cmd[1:]
+        return res
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the ArgumentParser with all subcommands."""
+    parser = AgentFixParser(
         prog="agentfix",
         description="Autonomous AI Agent Runtime Shield & Token Sieve",
     )
@@ -240,14 +265,20 @@ def main(argv: list[str] | None = None) -> int:
     # Subcommand: audit
     subparsers.add_parser("audit", help="Audit workspace and clean agent clutter")
 
-    # Handle standard double-dash parsing if present
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
     raw_args = list(sys.argv[1:] if argv is None else argv)
-    # If `run` is first, strip a single leading `--` before cmd if present
+
+    # Handle standard double-dash parsing if present
     if raw_args and raw_args[0] == "run":
         if "--" in raw_args:
             idx = raw_args.index("--")
             sub_flags = raw_args[1:idx]
             command_parts = raw_args[idx + 1 :]
+            p_run = parser._subparsers._actions[1].choices["run"]
             parsed = p_run.parse_args(sub_flags)
             parsed.subcommand = "run"
             parsed.cmd = command_parts

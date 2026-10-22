@@ -20,7 +20,7 @@ def strip_ansi(text: str) -> str:
 def clean_progress_bars(text: str) -> str:
     """Normalize carriage returns (\r) often produced by spinners and progress bars."""
     lines = []
-    for raw_line in text.splitlines():
+    for raw_line in text.split("\n"):
         if "\r" in raw_line:
             parts = [p for p in raw_line.split("\r") if p.strip()]
             line = parts[-1] if parts else ""
@@ -60,6 +60,11 @@ class TokenSieve:
             - reduction_pct: Percentage token reduction
             - is_compressed: True if output was compressed
         """
+        if isinstance(stderr, int):
+            command = exit_code if isinstance(exit_code, str) else command
+            exit_code = stderr
+            stderr = ""
+
         raw_combined = (stdout + ("\n" + stderr if stderr else "")).strip()
         cleaned = clean_progress_bars(strip_ansi(raw_combined))
         orig_tokens = estimate_tokens(raw_combined)
@@ -75,7 +80,16 @@ class TokenSieve:
             }
 
         cmd_lower = command.lower()
-        if "pytest" in cmd_lower or "python -m unittest" in cmd_lower or "pytest" in cleaned.lower():
+        cleaned_lower = cleaned.lower()
+        if "cargo nextest" in cmd_lower or "cargo-nextest" in cmd_lower or "nextest" in cmd_lower or ("summary [" in cleaned_lower and "tests run:" in cleaned_lower):
+            sieved = cls._compress_nextest(cleaned, exit_code)
+        elif "ctest" in cmd_lower or "gtest" in cmd_lower or "test project" in cleaned_lower or "[==========] running" in cleaned_lower or ("tests passed," in cleaned_lower and "tests failed out of" in cleaned_lower):
+            sieved = cls._compress_ctest(cleaned, exit_code)
+        elif "mvn" in cmd_lower or "maven" in cmd_lower or "maven-surefire-plugin" in cleaned_lower or "t e s t s" in cleaned_lower:
+            sieved = cls._compress_maven(cleaned, exit_code)
+        elif "gradle" in cmd_lower or "gradlew" in cmd_lower or "task :test" in cleaned_lower:
+            sieved = cls._compress_gradle(cleaned, exit_code)
+        elif "pytest" in cmd_lower or "python -m unittest" in cmd_lower or "pytest" in cleaned_lower:
             sieved = cls._compress_pytest(cleaned, exit_code)
         elif "npm test" in cmd_lower or "jest" in cmd_lower or "vitest" in cmd_lower:
             sieved = cls._compress_jest(cleaned, exit_code)
@@ -219,3 +233,311 @@ class TokenSieve:
             f"... [Middle output elided] ...\n"
             f"{tail}"
         )
+
+    @staticmethod
+    def _compress_maven(text: str, exit_code: int) -> str:
+        cleaned = strip_ansi(text)
+        lines = [line.rstrip() for line in cleaned.splitlines()]
+
+        if exit_code == 0:
+            summary_match = re.search(
+                r"Tests run:\s*(\d+),\s*Failures:\s*(\d+),\s*Errors:\s*(\d+),\s*Skipped:\s*(\d+)",
+                cleaned,
+            )
+            time_match = re.search(r"Total time:\s*([^\n\r]+)", cleaned)
+            time_str = f" (Total time: {time_match.group(1).strip()})" if time_match else ""
+            if summary_match:
+                run, fail, err, skip = summary_match.groups()
+                return (
+                    f"[AgentFixer PASS] maven: Tests run: {run}, Failures: {fail}, "
+                    f"Errors: {err}, Skipped: {skip}{time_str} | Build and test logs suppressed."
+                )
+            elif "BUILD SUCCESS" in cleaned:
+                return f"[AgentFixer PASS] maven: BUILD SUCCESS{time_str} | Build and test logs suppressed."
+            return "[AgentFixer PASS] maven: Build and tests passed successfully."
+
+        # Exit code != 0: Extract failures, errors, stack frames, and summary
+        filtered_lines = []
+        capture_failure = False
+        in_failures_block = False
+
+        INTERNAL_FRAMES = (
+            "org.apache.maven.surefire.",
+            "org.junit.platform.",
+            "org.junit.jupiter.",
+            "org.junit.vintage.",
+            "jdk.internal.reflect.",
+            "java.base/jdk.internal",
+            "java.base/java.lang.reflect",
+            "sun.reflect.",
+            "org.testng.",
+        )
+
+        for line in lines:
+            stripped = line.strip()
+
+            # Capture compiler errors
+            if "[ERROR]" in line and (".java:[" in line or "COMPILATION ERROR" in line):
+                filtered_lines.append(line)
+                continue
+
+            # Detect start of Surefire failure / error banner
+            if "<<< FAILURE!" in line or "<<< ERROR!" in line:
+                capture_failure = True
+                filtered_lines.append(line)
+                continue
+
+            # Detect Failures: / Errors: block in Results section
+            if re.search(r"\[ERROR\]\s+(Failures|Errors):\s*$", line):
+                in_failures_block = True
+                filtered_lines.append(line)
+                continue
+
+            if in_failures_block:
+                if stripped.startswith("[ERROR]   ") or stripped.startswith("  "):
+                    filtered_lines.append(line)
+                    continue
+                elif stripped.startswith("[INFO]") or not stripped:
+                    in_failures_block = False
+
+            if capture_failure:
+                if any(exc in line for exc in ("Exception", "Error", "AssertionFailedError", "expected:", "but was:")):
+                    filtered_lines.append(line)
+                    continue
+                if stripped.startswith("at "):
+                    if not any(fr in line for fr in INTERNAL_FRAMES):
+                        filtered_lines.append(line)
+                    continue
+                if stripped.startswith("[INFO]") or stripped.startswith("[ERROR] -------------------") or not stripped:
+                    capture_failure = False
+
+            # Keep Surefire summary line
+            if re.search(r"Tests run:\s*\d+,\s*Failures:\s*\d+,\s*Errors:\s*\d+", line):
+                if line not in filtered_lines:
+                    filtered_lines.append(line)
+
+        if not filtered_lines:
+            filtered_lines = [l for l in lines if "[ERROR]" in l][-25:] or lines[-25:]
+
+        body = "\n".join(filtered_lines).strip()
+        return f"[AgentFixer FAIL: maven exit {exit_code}]\n{body}"
+
+    @staticmethod
+    def _compress_gradle(text: str, exit_code: int) -> str:
+        cleaned = clean_progress_bars(strip_ansi(text))
+        lines = [line.rstrip() for line in cleaned.splitlines()]
+
+        if exit_code == 0:
+            build_match = re.search(r"BUILD SUCCESSFUL in\s+([^\n\r]+)", cleaned)
+            action_match = re.search(r"(\d+\s+actionable tasks?:[^\n\r]+)", cleaned)
+            time_str = build_match.group(1).strip() if build_match else ""
+            action_str = f" ({action_match.group(1).strip()})" if action_match else ""
+
+            if build_match:
+                return f"[AgentFixer PASS] gradle: BUILD SUCCESSFUL in {time_str}{action_str} | Passing task output suppressed."
+            elif "BUILD SUCCESSFUL" in cleaned:
+                return "[AgentFixer PASS] gradle: BUILD SUCCESSFUL | Passing task output suppressed."
+            return "[AgentFixer PASS] gradle: Build and tests passed successfully."
+
+        # Exit code != 0: Extract failing tasks, failed tests, stack traces, and summary
+        filtered_lines = []
+        in_failure = False
+
+        INTERNAL_FRAMES = (
+            "org.gradle.",
+            "org.junit.platform.",
+            "org.junit.jupiter.api.AssertionUtils",
+            "jdk.internal.",
+            "java.base/jdk.internal",
+            "java.base/java.lang.reflect",
+            "sun.reflect.",
+        )
+
+        for line in lines:
+            stripped = line.strip()
+
+            if "UP-TO-DATE" in line or "NO-SOURCE" in line:
+                continue
+            if stripped.endswith("PASSED"):
+                continue
+            if stripped.startswith("> Task :") and "FAILED" not in stripped:
+                continue
+
+            if stripped.startswith("> Task :") and "FAILED" in stripped:
+                filtered_lines.append(line)
+                continue
+
+            if " > " in line and "FAILED" in line:
+                in_failure = True
+                filtered_lines.append(line)
+                continue
+
+            if in_failure:
+                if any(term in line for term in ("AssertionFailedError", "AssertionError", "Exception", "expected:", "but was:")):
+                    filtered_lines.append(line)
+                    continue
+                if stripped.startswith("at "):
+                    if not any(fr in line for fr in INTERNAL_FRAMES):
+                        filtered_lines.append(line)
+                    continue
+                if stripped.startswith("> Task") or re.search(r"\d+\s+tests?\s+completed", stripped) or not stripped:
+                    in_failure = False
+
+            if re.search(r"\d+\s+tests?\s+completed", line):
+                filtered_lines.append(line)
+                continue
+
+            if stripped.startswith("FAILURE: Build failed") or stripped.startswith("* What went wrong:"):
+                filtered_lines.append(line)
+                continue
+            if stripped.startswith("Execution failed for task"):
+                filtered_lines.append(line)
+                continue
+
+            if re.search(r"\.java:\d+:\s+error:", line):
+                filtered_lines.append(line)
+
+        if not filtered_lines:
+            filtered_lines = [l for l in lines if "FAILED" in l or "FAILURE" in l or "error:" in l][-25:] or lines[-25:]
+
+        body = "\n".join(filtered_lines).strip()
+        return f"[AgentFixer FAIL: gradle exit {exit_code}]\n{body}"
+
+    @staticmethod
+    def _compress_ctest(text: str, exit_code: int) -> str:
+        """Compress CTest / GoogleTest output.
+
+        Suppresses passing tests by >= 90% while preserving summary.
+        On failure, isolates failure frames with exact file and line accuracy.
+        """
+        text = strip_ansi(text)
+        lines = [line.rstrip() for line in text.splitlines()]
+        if exit_code == 0:
+            summary_match = None
+            time_match = None
+            for line in lines:
+                if "tests passed," in line and "tests failed out of" in line:
+                    summary_match = line.strip()
+                elif "Total Test time" in line:
+                    time_match = line.strip()
+                elif "[  PASSED  ]" in line:
+                    summary_match = line.strip()
+
+            if summary_match and time_match:
+                summary_str = f"{summary_match} ({time_match})"
+            elif summary_match:
+                summary_str = summary_match
+            else:
+                summary_str = "All tests passed."
+            return f"[AgentFixer PASS] ctest: {summary_str} | Individual test logs suppressed."
+
+        # Failure isolation with exact file and line accuracy
+        FRAME_RE = re.compile(r"(?P<file>.+\.(?:cpp|cc|cxx|c|h|hpp)):(?P<line>\d+):")
+        SUMMARY_RE = re.compile(r"\d+%\s*tests passed,\s*\d+\s*tests failed out of\s*\d+")
+
+        kept: list[str] = []
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            m = FRAME_RE.search(line)
+            if m:
+                kept.append(line)
+                i += 1
+                # Capture following assertion lines until next test runner marker
+                while i < len(lines):
+                    sub = lines[i]
+                    if (
+                        any(sub.startswith(k) for k in ("[  FAILED  ]", "[ RUN      ]", "[----------]", "Test #", "The following tests FAILED:"))
+                        or SUMMARY_RE.search(sub)
+                    ):
+                        break
+                    kept.append(sub)
+                    i += 1
+                continue
+
+            if "[  FAILED  ]" in line or "***Failed" in line:
+                kept.append(line)
+            elif "The following tests FAILED:" in line:
+                kept.append(line)
+                i += 1
+                while i < len(lines) and (
+                    lines[i].strip().startswith(tuple("0123456789"))
+                    or "\t" in lines[i]
+                    or lines[i].strip().endswith("(Failed)")
+                ):
+                    kept.append(lines[i])
+                    i += 1
+                continue
+            elif SUMMARY_RE.search(line):
+                kept.append(line)
+            elif "Errors while running CTest" in line:
+                kept.append(line)
+            elif line.strip().startswith("[ RUN      ]"):
+                lookahead_fail = False
+                for j in range(i + 1, min(i + 25, len(lines))):
+                    if lines[j].startswith("[       OK ]"):
+                        break
+                    if lines[j].startswith("[  FAILED  ]") or FRAME_RE.search(lines[j]):
+                        lookahead_fail = True
+                        break
+                if lookahead_fail:
+                    kept.append(line)
+            i += 1
+
+        if not kept:
+            kept = [l for l in lines if not any(k in l for k in ("[       OK ]", "   Passed "))][-40:]
+
+        return f"[AgentFixer FAIL: ctest exit {exit_code}]\n" + "\n".join(kept).strip()
+
+    @staticmethod
+    def _compress_nextest(text: str, exit_code: int) -> str:
+        """Compress Rust cargo nextest output.
+
+        Suppresses individual PASS lines while preserving summary.
+        On failure, isolates failure frames, panics, and crate backtraces.
+        """
+        text = strip_ansi(text)
+        lines = [line.rstrip() for line in text.splitlines()]
+        if exit_code == 0:
+            for line in reversed(lines):
+                if "Summary [" in line or ("tests run:" in line and "passed" in line):
+                    return f"[AgentFixer PASS] cargo-nextest: {line.strip()} | Individual test passes suppressed."
+            return "[AgentFixer PASS] cargo-nextest: All tests passed."
+
+        kept: list[str] = []
+        skip_backtrace = False
+        has_compiler_error = any("error[" in l or "error: could not compile" in l for l in lines)
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("PASS ["):
+                continue
+            if not has_compiler_error:
+                if stripped.startswith("Compiling ") or stripped.startswith("Finished "):
+                    continue
+                if stripped.startswith("Starting ") and "tests across" in stripped:
+                    continue
+
+            if "stack backtrace:" in line:
+                kept.append(line)
+                skip_backtrace = True
+                continue
+
+            if skip_backtrace:
+                if stripped.startswith("---") or stripped.startswith("Summary") or stripped.startswith("error:") or stripped.startswith("------------"):
+                    skip_backtrace = False
+                else:
+                    if "/rustc/" in line or "core::panicking" in line or "rust_begin_unwind" in line:
+                        continue
+                    kept.append(line)
+                    continue
+
+            kept.append(line)
+
+        if not kept:
+            kept = [l for l in lines if not l.strip().startswith("PASS [")][-40:]
+
+        return f"[AgentFixer FAIL: cargo-nextest exit {exit_code}]\n" + "\n".join(kept).strip()
+
+    # Alias for compatibility with callers expecting either naming convention
+    _compress_cargo_nextest = _compress_nextest
