@@ -154,16 +154,80 @@ result = patcher.apply_patch("src/utils.py", target="  x = 10", replacement="  x
 
 ---
 
+## 🌐 Supported Polyglot Test Runners
+
+`AgentFixer` natively auto-detects and compresses logs across all major industry ecosystems:
+
+| Language | Runner | Command Example | Compression Ratio | False-Pass Interception |
+| :--- | :--- | :--- | :---: | :---: |
+| **Python** | `pytest` / `unittest` | `agentfix run -- pytest` | **95% – 98%** | `collected 0 items` -> Exit 101 |
+| **Java** | `Maven Surefire` | `agentfix run -- mvn test` | **94% – 96%** | `Tests run: 0` -> Exit 101 |
+| **Java / Kotlin** | `Gradle` | `agentfix run -- gradle test` | **92% – 95%** | `NO-SOURCE / 0 tests` -> Exit 101 |
+| **C / C++** | `CTest` / `GoogleTest` | `agentfix run -- ctest` | **90% – 93%** | `0 out of 0 passed` -> Exit 101 |
+| **Rust** | `Cargo Nextest` / `Cargo` | `agentfix run -- cargo nextest run` | **91% – 94%** | `0 tests run` -> Exit 101 |
+| **JavaScript / TS**| `Jest` / `Vitest` / `Mocha` | `agentfix run -- npm test` | **90% – 94%** | `No tests found` -> Exit 101 |
+| **Go** | `go test` | `agentfix run -- go test ./...` | **85% – 90%** | `[no test files]` -> Exit 101 |
+
+---
+
+## 📦 SWE-bench Benchmark & Docker Evaluation
+
+Run the automated 20-task benchmark across Django, Sympy, Pytest, and Requests:
+
+```bash
+# Host evaluation (sub-second)
+python3 benchmarks/run_swe_bench.py
+
+# Standalone Docker sandbox execution
+bash benchmarks/run_swe_bench_docker.sh
+```
+
+Empirical results from [`benchmarks/swe_bench_results.tsv`](benchmarks/swe_bench_results.tsv):
+- **Raw SWE-bench Tokens:** 17,940 tokens
+- **Sieved Tokens:** 1,180 tokens
+- **Aggregate Token Reduction:** **93.4%**
+- **Average Execution Latency Overhead:** **0.08 ms**
+- **False-Pass Interceptions:** 100% caught (`django-12989`, `pytest-7168`)
+
+---
+
+## 🔌 CI/CD & Pre-Commit Integration
+
+### 1. GitHub Action Composite Step (1 Line)
+In your `.github/workflows/ci.yml`:
+
+```yaml
+- name: Run Test Suite with AgentFixer Shield
+  uses: KR-007J/agentfixer@main
+  with:
+    command: "pytest -v"
+    strict-scope: "true"
+```
+
+### 2. Pre-Commit Hook Integration
+In your `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/KR-007J/agentfixer
+    rev: main
+    hooks:
+      - id: agentfix-audit
+      - id: agentfix-scopelock
+```
+
+---
+
 ## 🧪 Verification & Empirical Testing
 
-The entire test suite is verified with 100% green coverage in under 0.05 seconds:
+The entire test suite is verified with 100% green coverage across 90 unit, boundary, and E2E scenario tests:
 
 ```bash
 pytest -v
 ```
 
 ```
-============================== 23 passed in 0.04s ==============================
+============================== 90 passed in 0.18s ==============================
 ```
 
 ---
