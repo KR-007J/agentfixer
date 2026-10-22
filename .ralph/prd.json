@@ -1,0 +1,80 @@
+{
+  "project": "agentfixer",
+  "branchName": "main",
+  "description": "Autonomous AI Agent Runtime Shield & Token Sieve: Context defense, false-pass interception, and fuzzy surgical patching for Claude Code, Antigravity, and SWE-bench",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "TokenSieve Output Compression & ANSI Stripping",
+      "description": "Compress raw CLI logs by 90%+ while preserving 100% of failure tracebacks.",
+      "acceptanceCriteria": [
+        "Strip ANSI escape sequences cleanly",
+        "Normalize carriage return progress bars",
+        "Compress 100+ pytest passing outputs to a 1-line signal",
+        "Preserve exact assertion error frames and filenames on failure",
+        "Typecheck and tests pass"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Verified with tests/test_tokensieve.py (100% pass in 0.04s, 99.0% empirical reduction)"
+    },
+    {
+      "id": "US-002",
+      "title": "FalsePass Sentinel Silent Exit 0 Interceptor",
+      "description": "Intercept commands exiting 0 when 0 tests were executed and override exit code to 101.",
+      "acceptanceCriteria": [
+        "Detect pytest 'collected 0 items'",
+        "Detect jest/vitest 'No tests found'",
+        "Detect cargo 'running 0 tests'",
+        "Override effective exit code to 101 with explicit critical alert banner",
+        "Unit tests pass"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Verified with tests/test_sentinel.py"
+    },
+    {
+      "id": "US-003",
+      "title": "PatchFuse Fault-Tolerant Surgical Fuzzy Patcher",
+      "description": "Resolve whitespace and indentation mismatches automatically during agent file edits.",
+      "acceptanceCriteria": [
+        "Exact substring replacement match",
+        "Whitespace-normalized line matching with indentation delta tracking",
+        "Sliding-window Levenshtein fuzzy sequence alignment (threshold >= 0.85)",
+        "Dry-run unified diff generation",
+        "Unit tests pass"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Verified with tests/test_patcher.py"
+    },
+    {
+      "id": "US-004",
+      "title": "ScopeLock Worktree Boundary & Anti-Creep Sentinel",
+      "description": "Prevent out-of-scope modifications and auto-purge temporary cache artifacts.",
+      "acceptanceCriteria": [
+        "Pre-execution SHA-256 snapshot capture",
+        "Detect forbidden file creation (.env, secret keys)",
+        "Auto-purge __pycache__, .pytest_cache, and scratch artifacts",
+        "Unit tests pass"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Verified with tests/test_scopelock.py"
+    },
+    {
+      "id": "US-005",
+      "title": "Autoresearch Empirical Benchmark Harness",
+      "description": "Fixed time-budget quantitative metric evaluation logged to results.tsv.",
+      "acceptanceCriteria": [
+        "Measure token reduction percentage",
+        "Measure latency overhead in milliseconds (<15ms)",
+        "Measure false-pass interception accuracy (100%)",
+        "Append-only structured logging in results.tsv"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Verified with benchmarks/run_benchmarks.py (0.06ms overhead)"
+    }
+  ]
+}

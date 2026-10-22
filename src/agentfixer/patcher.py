@@ -50,14 +50,14 @@ class PatchFuse:
         dry_run: bool = False,
     ) -> PatchResult:
         """Apply a replacement block to file_path with multi-tier fallback."""
-        path = Path(file_path)
-        if not path.exists():
+        path = Path(file_path).resolve()
+        if not path.exists() or not path.is_file():
             return PatchResult(
                 success=False,
                 modified=False,
                 strategy="none",
                 match_ratio=0.0,
-                error=f"File not found: {file_path}",
+                error=f"File not found or not a valid file: {file_path}",
             )
 
         try:

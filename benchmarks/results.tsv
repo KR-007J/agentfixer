@@ -1,0 +1,2 @@
+commit	token_reduction_pct	latency_ms	false_pass_accuracy	status	description
+4803d7d	99.0%	0.06ms	100.0%	KEEP	Verified baseline: 99.0% reduction in 0.06ms with 100.0% false-pass interception
